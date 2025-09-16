@@ -4,12 +4,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import { Eye, EyeOff, Loader2, Sparkles, Mail, Lock } from 'lucide-react'
+import { Shield, Loader2, AlertCircle, Building2, Key, ChevronRight } from 'lucide-react'
 
-export default function LoginPage() {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
+export default function CompanyLoginPage() {
+  const [accessToken, setAccessToken] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
@@ -21,311 +19,173 @@ export default function LoginPage() {
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
+      // Validate access token
+      const { data: company, error: companyError } = await supabase
+        .from('entreprises')
+        .select('*')
+        .eq('access_token', accessToken.trim())
+        .eq('subscription_status', 'active')
+        .single()
 
-      if (error) throw error
-      
+      if (companyError || !company) {
+        throw new Error('Code d\'accès invalide ou expiré')
+      }
+
+      // Check if subscription is still valid
+      if (company.trial_ends_at && new Date(company.trial_ends_at) < new Date()) {
+        throw new Error('Votre période d\'essai a expiré')
+      }
+
+      // Create session
+      const sessionData = {
+        company_id: company.id,
+        company_name: company.nom,
+        subscription_plan: company.subscription_plan,
+        features: company.features,
+        expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+      }
+
+      // Store in localStorage and cookie
+      localStorage.setItem('company_session', JSON.stringify(sessionData))
+      document.cookie = `company_session=${btoa(JSON.stringify(sessionData))}; path=/; max-age=86400`
+
+      // Update last login
+      await supabase
+        .from('entreprises')
+        .update({ 
+          last_login_at: new Date().toISOString(),
+          login_count: (company.login_count || 0) + 1,
+          last_activity_at: new Date().toISOString()
+        })
+        .eq('id', company.id)
+
+      // Log access
+      await supabase
+        .from('access_logs')
+        .insert({
+          entreprise_id: company.id,
+          access_token_used: accessToken.substring(0, 8) + '...',
+          access_method: 'token',
+          path_accessed: '/login',
+          action: 'login_success',
+          response_status: 200
+        })
+
       router.push('/dashboard')
-      router.refresh()
-    } catch (error: any) {
-      setError(error.message || 'Une erreur est survenue')
+    } catch (err: any) {
+      setError(err.message || 'Erreur de connexion')
+      
+      // Log failed attempt
+      await supabase
+        .from('access_logs')
+        .insert({
+          access_token_used: accessToken.substring(0, 8) + '...',
+          access_method: 'token',
+          path_accessed: '/login',
+          action: 'login_failed',
+          response_status: 401
+        })
+    } finally {
       setIsLoading(false)
     }
   }
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '20px',
-      position: 'relative',
-      overflow: 'hidden'
-    }}>
-      {/* Animated Background */}
-      <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none' }}>
-        <div style={{
-          position: 'absolute',
-          top: '-200px',
-          left: '-200px',
-          width: '400px',
-          height: '400px',
-          background: 'radial-gradient(circle, rgba(139, 92, 246, 0.15) 0%, transparent 70%)',
-          filter: 'blur(100px)',
-          animation: 'float 20s infinite ease-in-out'
-        }} />
-        <div style={{
-          position: 'absolute',
-          bottom: '-200px',
-          right: '-200px',
-          width: '400px',
-          height: '400px',
-          background: 'radial-gradient(circle, rgba(6, 182, 212, 0.15) 0%, transparent 70%)',
-          filter: 'blur(100px)',
-          animation: 'float 15s infinite ease-in-out reverse'
-        }} />
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 flex items-center justify-center p-4">
+      {/* Background effects */}
+      <div className="fixed inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyan-500/10 rounded-full blur-3xl animate-pulse" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl animate-pulse" style={{ animationDelay: '2s' }} />
       </div>
 
-      <div style={{
-        width: '100%',
-        maxWidth: '440px',
-        position: 'relative',
-        zIndex: 10
-      }}>
-        <div style={{
-          background: 'rgba(255, 255, 255, 0.03)',
-          backdropFilter: 'blur(20px)',
-          borderRadius: '24px',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          padding: '48px 40px',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)'
-        }}>
-          {/* Logo */}
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '32px' }}>
-            <Link href="/" style={{ textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{
-                width: '48px',
-                height: '48px',
-                background: 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)',
-                borderRadius: '12px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0 0 30px rgba(139, 92, 246, 0.5)'
-              }}>
-                <Sparkles size={28} color="white" />
-              </div>
-              <span style={{
-                fontSize: '28px',
-                fontWeight: 'bold',
-                background: 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)',
-                WebkitBackgroundClip: 'text',
-                WebkitTextFillColor: 'transparent',
-                backgroundClip: 'text'
-              }}>
-                RH Quantum
-              </span>
-            </Link>
+      <div className="relative w-full max-w-md">
+        {/* Logo and title */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-br from-cyan-500 to-purple-600 rounded-3xl mb-6 shadow-2xl shadow-purple-500/20">
+            <Shield size={40} className="text-white" />
           </div>
-
-          <h1 style={{
-            fontSize: '32px',
-            fontWeight: 'bold',
-            textAlign: 'center',
-            marginBottom: '8px',
-            color: '#ffffff'
-          }}>
-            Bon retour
+          <h1 className="text-4xl font-bold text-white mb-2">
+            Accès Entreprise
           </h1>
-          <p style={{
-            color: '#9ca3af',
-            textAlign: 'center',
-            marginBottom: '32px',
-            fontSize: '16px'
-          }}>
-            Connectez-vous à votre tableau de bord
+          <p className="text-slate-400">
+            Connectez-vous avec votre code d'accès sécurisé
           </p>
+        </div>
 
-          <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {/* Login form */}
+        <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 rounded-2xl p-8">
+          <form onSubmit={handleLogin} className="space-y-6">
             <div>
-              <label style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '14px',
-                fontWeight: '500',
-                marginBottom: '8px',
-                color: '#e5e7eb'
-              }}>
-                <Mail size={16} color="#9ca3af" />
-                Email
+              <label className="flex items-center gap-2 text-sm font-medium text-slate-300 mb-2">
+                <Key size={16} />
+                Code d'accès
               </label>
               <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '12px 16px',
-                  background: 'rgba(255, 255, 255, 0.05)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                  borderRadius: '10px',
-                  color: 'white',
-                  fontSize: '15px',
-                  transition: 'all 0.3s ease',
-                  outline: 'none'
-                }}
-                onFocus={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.5)'
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'
-                }}
-                onBlur={(e) => {
-                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                }}
-                placeholder="vous@entreprise.com"
+                type="password"
+                value={accessToken}
+                onChange={(e) => setAccessToken(e.target.value)}
+                placeholder="Entrez votre code d'accès"
+                className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:border-transparent transition-all"
                 required
+                disabled={isLoading}
+                autoComplete="off"
+                minLength={32}
               />
-            </div>
-
-            <div>
-              <label style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '8px',
-                fontSize: '14px',
-                fontWeight: '500',
-                marginBottom: '8px',
-                color: '#e5e7eb'
-              }}>
-                <Lock size={16} color="#9ca3af" />
-                Mot de passe
-              </label>
-                                <div style={{ position: 'relative' }}>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '12px 16px',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    border: '1px solid rgba(255, 255, 255, 0.1)',
-                    borderRadius: '10px',
-                    color: 'white',
-                    fontSize: '15px',
-                    transition: 'all 0.3s ease',
-                    outline: 'none'
-                  }}
-                  onFocus={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(139, 92, 246, 0.5)'
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.08)'
-                  }}
-                  onBlur={(e) => {
-                    e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
-                  }}
-                  placeholder="••••••••"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={{
-                    position: 'absolute',
-                    right: '12px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: 'transparent',
-                    border: 'none',
-                    color: '#9ca3af',
-                    cursor: 'pointer',
-                    padding: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
-                </button>
-              </div>
+              <p className="mt-2 text-xs text-slate-500">
+                Le code d'accès vous a été fourni par email lors de l'activation
+              </p>
             </div>
 
             {error && (
-              <div style={{
-                padding: '12px',
-                background: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgba(239, 68, 68, 0.3)',
-                borderRadius: '10px',
-                color: '#f87171',
-                fontSize: '14px'
-              }}>
-                {error}
+              <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl flex items-start gap-3">
+                <AlertCircle size={20} className="text-red-400 flex-shrink-0 mt-0.5" />
+                <div className="text-sm text-red-400">{error}</div>
               </div>
             )}
 
             <button
               type="submit"
-              disabled={isLoading}
-              style={{
-                width: '100%',
-                padding: '14px',
-                background: isLoading 
-                  ? 'rgba(139, 92, 246, 0.5)' 
-                  : 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)',
-                border: 'none',
-                borderRadius: '10px',
-                color: 'white',
-                fontSize: '16px',
-                fontWeight: '600',
-                cursor: isLoading ? 'not-allowed' : 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '8px',
-                transition: 'all 0.3s ease',
-                boxShadow: '0 4px 20px rgba(139, 92, 246, 0.3)'
-              }}
-              onMouseEnter={(e) => {
-                if (!isLoading) {
-                  e.currentTarget.style.transform = 'translateY(-2px)'
-                  e.currentTarget.style.boxShadow = '0 8px 30px rgba(139, 92, 246, 0.4)'
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.transform = 'translateY(0)'
-                e.currentTarget.style.boxShadow = '0 4px 20px rgba(139, 92, 246, 0.3)'
-              }}
+              disabled={isLoading || !accessToken}
+              className="w-full px-6 py-3 bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl text-white font-semibold transition-all transform hover:scale-105 flex items-center justify-center gap-2"
             >
               {isLoading ? (
                 <>
-                  <Loader2 size={20} style={{ animation: 'spin 1s linear infinite' }} />
+                  <Loader2 size={20} className="animate-spin" />
                   Connexion...
                 </>
               ) : (
-                'Se connecter'
+                <>
+                  Accéder au Dashboard
+                  <ChevronRight size={20} />
+                </>
               )}
             </button>
           </form>
 
-          <div style={{ marginTop: '24px', textAlign: 'center' }}>
-            <p style={{ color: '#9ca3af', fontSize: '14px' }}>
-              Pas encore de compte?{' '}
-              <Link 
-                href="/signup" 
-                style={{
-                  color: '#a78bfa',
-                  textDecoration: 'none',
-                  fontWeight: '500',
-                  transition: 'color 0.3s ease'
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = '#c4b5fd'}
-                onMouseLeave={(e) => e.currentTarget.style.color = '#a78bfa'}
-              >
-                Inscrivez-vous
-              </Link>
-            </p>
+          <div className="mt-8 pt-6 border-t border-slate-800">
+            <div className="text-center space-y-4">
+              <p className="text-sm text-slate-400">
+                Pas encore client ?
+              </p>
+              
+               <Link
+  href="/demo"
+  className="inline-flex items-center gap-2 px-6 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl text-white font-medium transition-all"
+>
+  <Building2 size={16} />
+  Demander une démo
+</Link>
+            </div>
           </div>
         </div>
-      </div>
 
-      <style jsx>{`
-        @keyframes float {
-          0%, 100% { transform: translateY(0) translateX(0); }
-          25% { transform: translateY(-20px) translateX(10px); }
-          50% { transform: translateY(10px) translateX(-10px); }
-          75% { transform: translateY(-10px) translateX(15px); }
-        }
-        @keyframes spin {
-          from { transform: rotate(0deg); }
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
+        {/* Security note */}
+        <div className="mt-6 text-center">
+          <p className="text-xs text-slate-500">
+            Connexion sécurisée • Données chiffrées • Conforme RGPD
+          </p>
+        </div>
+      </div>
     </div>
   )
 }

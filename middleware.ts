@@ -1,77 +1,53 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
-import { NextResponse, type NextRequest } from 'next/server'
+import { NextResponse } from 'next/server'
+import type { NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  let response = NextResponse.next({
-    request: {
-      headers: request.headers,
-    },
-  })
+export function middleware(request: NextRequest) {
+  const path = request.nextUrl.pathname
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            request.cookies.set({ name, value, ...options })
-          })
-          response = NextResponse.next({
-            request: {
-              headers: request.headers,
-            },
-          })
-          cookiesToSet.forEach(({ name, value, options }) => {
-            response.cookies.set({ name, value, ...options })
-          })
-        },
-      },
-    }
-  )
+  // Public paths
+  const isPublicPath = path === '/' || path === '/login' || path === '/demo'
+  
+  // Admin paths
+  const isAdminPath = path.startsWith('/admin')
+  
+  // Dashboard paths
+  const isDashboardPath = path.startsWith('/dashboard') || 
+                         path.startsWith('/import') || 
+                         path.startsWith('/employees') ||
+                         path.startsWith('/settings')
 
-  // Get the user session
-  const { data: { user }, error } = await supabase.auth.getUser()
-
-  // Define protected routes
-  const isProtectedRoute = request.nextUrl.pathname.startsWith('/dashboard') ||
-                          request.nextUrl.pathname.startsWith('/employees') ||
-                          request.nextUrl.pathname.startsWith('/import') ||
-                          request.nextUrl.pathname.startsWith('/settings')
-
-  // Define auth routes
-  const isAuthRoute = request.nextUrl.pathname === '/login' || 
-                     request.nextUrl.pathname === '/signup'
-
-  // Protect dashboard routes - redirect to login if not authenticated
-  if (isProtectedRoute && !user) {
-    return NextResponse.redirect(new URL('/login', request.url))
-  }
-
-  // Redirect authenticated users away from auth pages ONLY if they have a valid session
-  // Check for error to ensure the session is actually valid
-  if (isAuthRoute && user && !error) {
-    // Also verify the user has a company before redirecting to dashboard
-    const { data: company } = await supabase
-      .from('etablissements')
-      .select('id')
-      .eq('user_id', user.id)
-      .single()
+  // Check company session for dashboard
+  if (isDashboardPath) {
+    const companySession = request.cookies.get('company_session')
     
-    // Only redirect if they have a company set up
-    if (company) {
-      return NextResponse.redirect(new URL('/dashboard', request.url))
+    if (!companySession) {
+      return NextResponse.redirect(new URL('/login', request.url))
+    }
+    
+    try {
+      const sessionData = JSON.parse(atob(companySession.value))
+      if (new Date(sessionData.expires_at) < new Date()) {
+        return NextResponse.redirect(new URL('/login', request.url))
+      }
+    } catch {
+      return NextResponse.redirect(new URL('/login', request.url))
     }
   }
 
-  return response
+  // Check admin session for admin panel
+  if (isAdminPath && path !== '/admin/login') {
+    const adminSession = request.cookies.get('admin_session')
+    
+    if (!adminSession) {
+      return NextResponse.redirect(new URL('/admin/login', request.url))
+    }
+  }
+
+  return NextResponse.next()
 }
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 }
